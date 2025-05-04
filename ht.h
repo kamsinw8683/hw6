@@ -46,7 +46,7 @@ struct LinearProber : public Prober<KeyType> {
 
 // To be completed
 template <typename KeyType, typename Hash2>
-struct DoubleHashProber : public Prober<KeyType> 
+struct DoubleHashProber : public Prober<KeyType>
 {
     Hash2 h2_;              /// h2(k)
     HASH_INDEX_T dhstep_;   /// Stepsize to use for double hash probing
@@ -55,10 +55,6 @@ struct DoubleHashProber : public Prober<KeyType>
     static const HASH_INDEX_T DOUBLE_HASH_MOD_VALUES[]; 
     /// The number of elements in the array above
     static const int DOUBLE_HASH_MOD_SIZE;
-
-    //==================================
-    // Add data members, as desired
-    //==================================
 
 private:
     HASH_INDEX_T findModulusToUseFromTableSize(HASH_INDEX_T currTableSize)
@@ -69,6 +65,7 @@ private:
         }
         return modulus;
     }
+
 public:
     /**
      * @brief Construct a new Double Hash Prober
@@ -370,7 +367,6 @@ void HashTable<K,V,Prober,Hash,KEqual>::remove(const KeyType& key)
         item->deleted = true;
         size_--;
     }
-
 }
 
 
@@ -433,7 +429,7 @@ template<typename K, typename V, typename Prober, typename Hash, typename KEqual
 typename HashTable<K,V,Prober,Hash,KEqual>::HashItem* HashTable<K,V,Prober,Hash,KEqual>::internalFind(const KeyType& key) const
 {
     HASH_INDEX_T h = this->probe(key);
-    if((npos == h) || nullptr == table_[h] ){
+    if((npos == h) || nullptr == table_[h] || table_[h]->deleted) {
         return nullptr;
     }
     return table_[h];
