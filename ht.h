@@ -65,9 +65,7 @@ private:
     HASH_INDEX_T findModulusToUseFromTableSize(HASH_INDEX_T currTableSize)
     {
         HASH_INDEX_T modulus = DOUBLE_HASH_MOD_VALUES[0];
-        // find the modulus that is just smaller than the table size
-        for(int i=0; i < DOUBLE_HASH_MOD_SIZE && DOUBLE_HASH_MOD_VALUES[i] < currTableSize; i++)
-        {
+        for(int i = 0; i < DOUBLE_HASH_MOD_SIZE && DOUBLE_HASH_MOD_VALUES[i] < currTableSize; i++) {
             modulus = DOUBLE_HASH_MOD_VALUES[i];
         }
         return modulus;
@@ -95,8 +93,10 @@ public:
     {
         Prober<KeyType>::init(start, m, key);
         HASH_INDEX_T modulus = findModulusToUseFromTableSize(m);
-        // Compute probe stepsize given modulus and h2(k) 
-        dhstep_ = modulus - h2_(key) % modulus;
+        dhstep_ = modulus - (h2_(key) % modulus);
+        if (dhstep_ == 0) {
+            dhstep_ = 1;  // Ensure we don't get stuck in a cycle
+        }
     }
 
     // To be completed
@@ -449,32 +449,30 @@ template<typename K, typename V, typename Prober, typename Hash, typename KEqual
 void HashTable<K,V,Prober,Hash,KEqual>::resize()
 {
     mIndex_++;
-    bool maxCapacity = mIndex_ >= sizeof(CAPACITIES) / sizeof(CAPACITIES[0]);
-    if (maxCapacity)
-    {
+    if (mIndex_ >= sizeof(CAPACITIES) / sizeof(CAPACITIES[0])) {
         throw std::logic_error("Maximum capacity reached");
     }
-    else
-    {
-        std::vector<HashItem *> oldTable = table_;
-        table_ = std::vector<HashItem *>(CAPACITIES[mIndex_], nullptr);
-        size_ = 0;
-        for (size_t i = 0; i < oldTable.size(); i++)
-        {
-            if (oldTable[i] != nullptr && !oldTable[i]->deleted)
-            {
-                HASH_INDEX_T newPos = probe(oldTable[i]->item.first);
-                if (newPos == npos)
-                {
-                    throw std::logic_error("No free location found");
+
+    std::vector<HashItem*> oldTable = table_;
+    table_ = std::vector<HashItem*>(CAPACITIES[mIndex_], nullptr);
+    size_ = 0;
+
+    for (size_t i = 0; i < oldTable.size(); i++) {
+        if (oldTable[i] != nullptr && !oldTable[i]->deleted) {
+            HASH_INDEX_T newPos = probe(oldTable[i]->item.first);
+            if (newPos == npos) {
+                // Clean up old table before throwing
+                for (size_t j = 0; j < oldTable.size(); j++) {
+                    if (oldTable[j] != nullptr) {
+                        delete oldTable[j];
+                    }
                 }
-                table_[newPos] = oldTable[i];
-                size_++;
+                throw std::logic_error("No free location found during resize");
             }
-            else if (oldTable[i] && oldTable[i]->deleted)
-            {
-                delete oldTable[i];
-            }
+            table_[newPos] = oldTable[i];
+            size_++;
+        } else if (oldTable[i] != nullptr) {
+            delete oldTable[i];
         }
     }
 }
@@ -490,12 +488,10 @@ HASH_INDEX_T HashTable<K,V,Prober,Hash,KEqual>::probe(const KeyType& key) const
     totalProbes_++;
     while(Prober::npos != loc)
     {
-        if(nullptr == table_[loc] ) {
+        if(nullptr == table_[loc]) {
             return loc;
         }
-        // fill in the condition for this else if statement which should 
-        // return 'loc' if the given key exists at this location
-        else if(kequal_(table_[loc]->item.first, key) && !table_[loc]->deleted) {
+        else if(!table_[loc]->deleted && kequal_(table_[loc]->item.first, key)) {
             return loc;
         }
         loc = prober_.next();
