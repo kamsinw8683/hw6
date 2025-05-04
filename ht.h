@@ -6,7 +6,6 @@
 
 typedef size_t HASH_INDEX_T;
 
-
 // Complete - Base Prober class
 template <typename KeyType>
 struct Prober {
@@ -46,7 +45,7 @@ struct LinearProber : public Prober<KeyType> {
 
 // To be completed
 template <typename KeyType, typename Hash2>
-struct DoubleHashProber : public Prober<KeyType> 
+struct DoubleHashProber : public Prober<KeyType>
 {
     Hash2 h2_;              /// h2(k)
     HASH_INDEX_T dhstep_;   /// Stepsize to use for double hash probing
@@ -56,22 +55,16 @@ struct DoubleHashProber : public Prober<KeyType>
     /// The number of elements in the array above
     static const int DOUBLE_HASH_MOD_SIZE;
 
-    //==================================
-    // Add data members, as desired
-    //==================================
-
 private:
-    // Complete
     HASH_INDEX_T findModulusToUseFromTableSize(HASH_INDEX_T currTableSize)
     {
         HASH_INDEX_T modulus = DOUBLE_HASH_MOD_VALUES[0];
-        // find the modulus that is just smaller than the table size
-        for(int i=0; i < DOUBLE_HASH_MOD_SIZE && DOUBLE_HASH_MOD_VALUES[i] < currTableSize; i++)
-        {
+        for(int i = 0; i < DOUBLE_HASH_MOD_SIZE && DOUBLE_HASH_MOD_VALUES[i] < currTableSize; i++) {
             modulus = DOUBLE_HASH_MOD_VALUES[i];
         }
         return modulus;
     }
+
 public:
     /**
      * @brief Construct a new Double Hash Prober
@@ -90,20 +83,21 @@ public:
      * @param m     Table size
      * @param key   Key (in case further hashing is necessary)
      */
-    // Complete
     void init(HASH_INDEX_T start, HASH_INDEX_T m, const KeyType& key) 
     {
         Prober<KeyType>::init(start, m, key);
         HASH_INDEX_T modulus = findModulusToUseFromTableSize(m);
-        // Compute probe stepsize given modulus and h2(k) 
-        dhstep_ = modulus - h2_(key) % modulus;
+        HASH_INDEX_T h2 = h2_(key) % modulus;
+        dhstep_ = modulus - h2;
+        if (dhstep_ == 0) {
+            dhstep_ = 1;  // Ensure we don't get stuck in a cycle
+        }
     }
 
     // To be completed
     HASH_INDEX_T next() 
     {
-        if (this->numProbes_ >= this->m_)
-        {
+        if (this->numProbes_ >= this->m_) {
             return this->npos;
         }
         HASH_INDEX_T location = (this->start_ + this->numProbes_ * dhstep_) % this->m_;
@@ -295,9 +289,8 @@ const HASH_INDEX_T HashTable<K,V,Prober,Hash,KEqual>::CAPACITIES[] =
 template<typename K, typename V, typename Prober, typename Hash, typename KEqual>
 HashTable<K,V,Prober,Hash,KEqual>::HashTable(
     double resizeAlpha, const Prober& prober, const Hasher& hash, const KEqual& kequal)
-       :  hash_(hash), kequal_(kequal), prober_(prober)
+       :  hash_(hash), kequal_(kequal), prober_(prober), resizeAlpha(resizeAlpha)
 {
-    // Initialize any other data members as necessary
     mIndex_ = 0;
     totalProbes_ = 0;
     size_ = 0;
@@ -341,26 +334,25 @@ void HashTable<K,V,Prober,Hash,KEqual>::insert(const ItemType& p)
         resize();
     }
     HASH_INDEX_T pos = probe(p.first);
-    if (npos != pos)
+    if (pos == npos)
     {
-        if (table_[pos] == nullptr)
-        {
-            table_[pos] = new HashItem(p);
-            size_++;
-        }
-        else if (table_[pos]->deleted)
-        {
-            table_[pos]->item.second = p.second;
-            table_[pos]->deleted = false;
-        }
-        else
-        {
-            table_[pos]->item.second = p.second;
-        }
+        throw std::logic_error("No free location found");
+    }
+    
+    if (table_[pos] == nullptr)
+    {
+        table_[pos] = new HashItem(p);
+        size_++;
+    }
+    else if (table_[pos]->deleted)
+    {
+        table_[pos]->item.second = p.second;
+        table_[pos]->deleted = false;
+        size_++;
     }
     else
     {
-        throw std::logic_error("No free location found");
+        table_[pos]->item.second = p.second;
     }
 }
 
@@ -374,9 +366,7 @@ void HashTable<K,V,Prober,Hash,KEqual>::remove(const KeyType& key)
         item->deleted = true;
         size_--;
     }
-
 }
-
 
 // Complete
 template<typename K, typename V, typename Prober, typename Hash, typename KEqual>
@@ -437,44 +427,49 @@ template<typename K, typename V, typename Prober, typename Hash, typename KEqual
 typename HashTable<K,V,Prober,Hash,KEqual>::HashItem* HashTable<K,V,Prober,Hash,KEqual>::internalFind(const KeyType& key) const
 {
     HASH_INDEX_T h = this->probe(key);
-    if((npos == h) || nullptr == table_[h] ){
+    if((npos == h) || nullptr == table_[h] || table_[h]->deleted) {
         return nullptr;
     }
     return table_[h];
 }
 
-
 // To be completed
 template<typename K, typename V, typename Prober, typename Hash, typename KEqual>
 void HashTable<K,V,Prober,Hash,KEqual>::resize()
 {
-    mIndex_++;
-    bool maxCapacity = mIndex_ >= sizeof(CAPACITIES) / sizeof(CAPACITIES[0]);
-    if (maxCapacity)
-    {
+    if (mIndex_ >= sizeof(CAPACITIES) / sizeof(CAPACITIES[0]) - 1) {
         throw std::logic_error("Maximum capacity reached");
     }
-    else
-    {
-        std::vector<HashItem *> oldTable = table_;
-        table_ = std::vector<HashItem *>(CAPACITIES[mIndex_], nullptr);
-        size_ = 0;
-        for (size_t i = 0; i < oldTable.size(); i++)
-        {
-            if (oldTable[i] != nullptr && !oldTable[i]->deleted)
-            {
-                HASH_INDEX_T newPos = probe(oldTable[i]->item.first);
-                if (newPos == npos)
-                {
-                    throw std::logic_error("No free location found");
+
+    std::vector<HashItem*> oldTable = table_;
+    mIndex_++;
+    size_t newSize = CAPACITIES[mIndex_];
+    table_ = std::vector<HashItem*>(newSize, nullptr);
+    size_ = 0;
+
+    // First, delete all deleted items
+    for (size_t i = 0; i < oldTable.size(); i++) {
+        if (oldTable[i] != nullptr && oldTable[i]->deleted) {
+            delete oldTable[i];
+            oldTable[i] = nullptr;
+        }
+    }
+
+    // Then rehash all non-deleted items
+    for (size_t i = 0; i < oldTable.size(); i++) {
+        if (oldTable[i] != nullptr) {
+            HASH_INDEX_T newPos = probe(oldTable[i]->item.first);
+            if (newPos == npos) {
+                // Clean up old table before throwing
+                for (size_t j = 0; j < oldTable.size(); j++) {
+                    if (oldTable[j] != nullptr) {
+                        delete oldTable[j];
+                    }
                 }
-                table_[newPos] = oldTable[i];
-                size_++;
+                throw std::logic_error("No free location found during resize");
             }
-            else if (oldTable[i] && oldTable[i]->deleted)
-            {
-                delete oldTable[i];
-            }
+            table_[newPos] = oldTable[i];
+            size_++;
         }
     }
 }
@@ -490,12 +485,10 @@ HASH_INDEX_T HashTable<K,V,Prober,Hash,KEqual>::probe(const KeyType& key) const
     totalProbes_++;
     while(Prober::npos != loc)
     {
-        if(nullptr == table_[loc] ) {
+        if(nullptr == table_[loc]) {
             return loc;
         }
-        // fill in the condition for this else if statement which should 
-        // return 'loc' if the given key exists at this location
-        else if(kequal_(table_[loc]->item.first, key) && !table_[loc]->deleted) {
+        else if(!table_[loc]->deleted && kequal_(table_[loc]->item.first, key)) {
             return loc;
         }
         loc = prober_.next();
@@ -509,13 +502,13 @@ HASH_INDEX_T HashTable<K,V,Prober,Hash,KEqual>::probe(const KeyType& key) const
 template<typename K, typename V, typename Prober, typename Hash, typename KEqual>
 void HashTable<K, V, Prober, Hash, KEqual>::reportAll(std::ostream& out) const
 {
-	for(HASH_INDEX_T i = 0; i < CAPACITIES[mIndex_]; ++i)
-	{
-		if(table_[i] != nullptr)
-		{
-			out << "Bucket " << i << ": " << table_[i]->item.first << " " << table_[i]->item.second << std::endl;
-		}
-	}
+    for(HASH_INDEX_T i = 0; i < CAPACITIES[mIndex_]; ++i)
+    {
+        if(table_[i] != nullptr)
+        {
+            out << "Bucket " << i << ": " << table_[i]->item.first << " " << table_[i]->item.second << std::endl;
+        }
+    }
 }
 
 #endif
