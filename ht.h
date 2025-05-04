@@ -61,7 +61,6 @@ struct DoubleHashProber : public Prober<KeyType>
     //==================================
 
 private:
-    // Complete
     HASH_INDEX_T findModulusToUseFromTableSize(HASH_INDEX_T currTableSize)
     {
         HASH_INDEX_T modulus = DOUBLE_HASH_MOD_VALUES[0];
@@ -88,12 +87,12 @@ public:
      * @param m     Table size
      * @param key   Key (in case further hashing is necessary)
      */
-    // Complete
     void init(HASH_INDEX_T start, HASH_INDEX_T m, const KeyType& key) 
     {
         Prober<KeyType>::init(start, m, key);
         HASH_INDEX_T modulus = findModulusToUseFromTableSize(m);
-        dhstep_ = modulus - (h2_(key) % modulus);
+        HASH_INDEX_T h2 = h2_(key) % modulus;
+        dhstep_ = modulus - h2;
         if (dhstep_ == 0) {
             dhstep_ = 1;  // Ensure we don't get stuck in a cycle
         }
@@ -102,8 +101,7 @@ public:
     // To be completed
     HASH_INDEX_T next() 
     {
-        if (this->numProbes_ >= this->m_)
-        {
+        if (this->numProbes_ >= this->m_) {
             return this->npos;
         }
         HASH_INDEX_T location = (this->start_ + this->numProbes_ * dhstep_) % this->m_;
@@ -295,9 +293,8 @@ const HASH_INDEX_T HashTable<K,V,Prober,Hash,KEqual>::CAPACITIES[] =
 template<typename K, typename V, typename Prober, typename Hash, typename KEqual>
 HashTable<K,V,Prober,Hash,KEqual>::HashTable(
     double resizeAlpha, const Prober& prober, const Hasher& hash, const KEqual& kequal)
-       :  hash_(hash), kequal_(kequal), prober_(prober)
+       :  hash_(hash), kequal_(kequal), prober_(prober), resizeAlpha(resizeAlpha)
 {
-    // Initialize any other data members as necessary
     mIndex_ = 0;
     totalProbes_ = 0;
     size_ = 0;
@@ -341,26 +338,25 @@ void HashTable<K,V,Prober,Hash,KEqual>::insert(const ItemType& p)
         resize();
     }
     HASH_INDEX_T pos = probe(p.first);
-    if (npos != pos)
+    if (pos == npos)
     {
-        if (table_[pos] == nullptr)
-        {
-            table_[pos] = new HashItem(p);
-            size_++;
-        }
-        else if (table_[pos]->deleted)
-        {
-            table_[pos]->item.second = p.second;
-            table_[pos]->deleted = false;
-        }
-        else
-        {
-            table_[pos]->item.second = p.second;
-        }
+        throw std::logic_error("No free location found");
+    }
+    
+    if (table_[pos] == nullptr)
+    {
+        table_[pos] = new HashItem(p);
+        size_++;
+    }
+    else if (table_[pos]->deleted)
+    {
+        table_[pos]->item.second = p.second;
+        table_[pos]->deleted = false;
+        size_++;
     }
     else
     {
-        throw std::logic_error("No free location found");
+        table_[pos]->item.second = p.second;
     }
 }
 
@@ -448,12 +444,12 @@ typename HashTable<K,V,Prober,Hash,KEqual>::HashItem* HashTable<K,V,Prober,Hash,
 template<typename K, typename V, typename Prober, typename Hash, typename KEqual>
 void HashTable<K,V,Prober,Hash,KEqual>::resize()
 {
-    mIndex_++;
-    if (mIndex_ >= sizeof(CAPACITIES) / sizeof(CAPACITIES[0])) {
+    if (mIndex_ >= sizeof(CAPACITIES) / sizeof(CAPACITIES[0]) - 1) {
         throw std::logic_error("Maximum capacity reached");
     }
 
     std::vector<HashItem*> oldTable = table_;
+    mIndex_++;
     table_ = std::vector<HashItem*>(CAPACITIES[mIndex_], nullptr);
     size_ = 0;
 
